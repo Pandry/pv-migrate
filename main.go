@@ -103,6 +103,25 @@ func main() {
 		glog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 	}
 
+	//Making use that at least source or destination ns are setted
+	if *sourceNamespace != "" || *destNamespace != "" {
+		//If destNamespace is empty, copy from source
+		if *sourceNamespace != "" && *destNamespace == "" {
+			*destNamespace = *sourceNamespace
+			//If sourceNamespace is empty, copy from destination
+		} else if *sourceNamespace == "" && *destNamespace != "" {
+			*sourceNamespace = *destNamespace
+		}
+	} else {
+		flag.Usage()
+		return
+	}
+
+	if *source == "" || *dest == "" {
+		flag.Usage()
+		return
+	}
+
 	sourceClaimInfo := buildClaimInfo(kubeClient, sourceNamespace, source)
 	destClaimInfo := buildClaimInfo(kubeClient, destNamespace, dest)
 
