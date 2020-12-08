@@ -133,7 +133,12 @@ func main() {
 	defer doCleanup(kubeClient, instance, *sourceNamespace)
 	defer doCleanup(kubeClient, instance, *destNamespace)
 
-	migrateViaRsync(instance, kubeClient, sourceClaimInfo, destClaimInfo)
+	if sourceClaimInfo.ownerNode == destClaimInfo.ownerNode {
+		log.Info("The claims exist on the same pod. Using single job mode")
+		migrateViaLocalRsync(instance, kubeClient, sourceClaimInfo, destClaimInfo)
+	} else {
+		migrateViaRsync(instance, kubeClient, sourceClaimInfo, destClaimInfo)
+	}
 }
 
 func handleSigterm(kubeClient *kubernetes.Clientset, instance string, sourceNamespace string, destNamespace string) {
@@ -211,6 +216,89 @@ func prepareRsyncJob(instance string, destClaimInfo claimInfo, targetHost string
 		},
 	}
 	return job
+}
+
+func prepareLocalRsyncJob(instance string, sourceClaimInfo claimInfo, destClaimInfo claimInfo) batchv1.Job {
+	jobTTLSeconds := int32(600)
+	backoffLimit := int32(0)
+	jobName := "pv-migrate-rsync-" + instance
+	job := batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: destClaimInfo.claim.Namespace,
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &jobTTLSeconds,
+			Template: corev1.PodTemplateSpec{
+
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      jobName,
+					Namespace: destClaimInfo.claim.Namespace,
+					Labels: map[string]string{
+						"app":       "pv-migrate",
+						"component": "rsync",
+						"instance":  instance,
+					},
+				},
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "source-vol",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: sourceClaimInfo.claim.Name,
+									ReadOnly:  true,
+								},
+							},
+						},
+						{
+							Name: "dest-vol",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: destClaimInfo.claim.Name,
+									ReadOnly:  false,
+								},
+							},
+						},
+					},
+					Containers: []corev1.Container{
+						{
+							Name:            "app",
+							Image:           "docker.io/utkuozdemir/pv-migrate-rsync:v0.1.0",
+							ImagePullPolicy: corev1.PullAlways,
+							Command: []string{
+								"rsync",
+								"-avz",
+								"/source/",
+								"/dest/",
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "source-vol",
+									MountPath: "/source",
+									ReadOnly:  true,
+								},
+								{
+									Name:      "dest-vol",
+									MountPath: "/dest",
+									ReadOnly:  false,
+								},
+							},
+						},
+					},
+					NodeName:      sourceClaimInfo.ownerNode,
+					RestartPolicy: corev1.RestartPolicyNever,
+				},
+			},
+		},
+	}
+	return job
+}
+
+func migrateViaLocalRsync(instance string, kubeClient *kubernetes.Clientset, sourceClaimInfo claimInfo, destClaimInfo claimInfo) {
+	rsyncJob := prepareLocalRsyncJob(instance, sourceClaimInfo, destClaimInfo)
+	createJobWaitTillCompleted(kubeClient, rsyncJob)
 }
 
 func migrateViaRsync(instance string, kubeClient *kubernetes.Clientset, sourceClaimInfo claimInfo, destClaimInfo claimInfo) {
