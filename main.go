@@ -88,11 +88,6 @@ func main() {
 	destNamespace := flag.String("dest-namespace", "", "Destination namespace")
 	flag.Parse()
 
-	if *source == "" || *sourceNamespace == "" || *dest == "" || *destNamespace == "" {
-		flag.Usage()
-		return
-	}
-
 	cfg, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
 		glog.Fatalf("Error building kubeconfig: %s", err.Error())
