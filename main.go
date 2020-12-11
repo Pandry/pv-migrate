@@ -128,8 +128,8 @@ func main() {
 	defer doCleanup(kubeClient, instance, *sourceNamespace)
 	defer doCleanup(kubeClient, instance, *destNamespace)
 
-	if sourceClaimInfo.ownerNode == destClaimInfo.ownerNode {
-		log.Info("The claims exist on the same pod. Using single job mode")
+	if sourceClaimInfo.ownerNode == destClaimInfo.ownerNode && sourceNamespace == destNamespace {
+		log.Info("The claims exist on the same node and Namespace. Using single job mode")
 		migrateViaLocalRsync(instance, kubeClient, sourceClaimInfo, destClaimInfo)
 	} else {
 		migrateViaRsync(instance, kubeClient, sourceClaimInfo, destClaimInfo)
